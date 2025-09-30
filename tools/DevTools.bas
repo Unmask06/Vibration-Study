@@ -173,6 +173,7 @@ Public Sub ExportAll()
     Dim fileExt As String
     Dim subFolder As String
     Dim exportCount As Long
+    Dim skippedCount As Long
     
     Set wb = ActiveWorkbook
     
@@ -183,6 +184,7 @@ Public Sub ExportAll()
     End If
     
     exportCount = 0
+    skippedCount = 0
     
     ' Ensure src directories exist
     Call MkDirIfMissing(SrcPath("Modules"))
@@ -194,6 +196,13 @@ Public Sub ExportAll()
         
         ' Skip document modules (ThisWorkbook, Sheets)
         If vbComp.Type <> vbext_ct_Document Then
+            
+            ' Skip components that start with "Module"
+            If Left(vbComp.Name, 6) = "Module" Then
+                skippedCount = skippedCount + 1
+                Debug.Print "Skipped (starts with Module): " & vbComp.Name
+                GoTo NextComponent
+            End If
             
             ' Determine file extension and subfolder based on component type
             Select Case vbComp.Type
@@ -225,9 +234,14 @@ Public Sub ExportAll()
 NextComponent:
     Next vbComp
     
-    MsgBox "Export complete. " & exportCount & " components exported to src/ directory." & vbCrLf & _
-           "Workbook: " & wb.Name, _
-           vbInformation, "DevTools - Export Complete"
+    Dim message As String
+    message = "Export complete. " & exportCount & " components exported to src/ directory."
+    If skippedCount > 0 Then
+        message = message & vbCrLf & skippedCount & " components skipped (names starting with 'Module')."
+    End If
+    message = message & vbCrLf & "Workbook: " & wb.Name
+    
+    MsgBox message, vbInformation, "DevTools - Export Complete"
     
     Exit Sub
     
@@ -237,6 +251,116 @@ ErrorHandler:
            vbCritical, "DevTools - Export Error"
 End Sub
 
+Private Function ImportFromFolder(ByVal folderPath As String, ByVal filePattern As String) As Long
+    ' Imports all files matching the pattern from the specified folder
+    ' Returns the count of successfully imported files
+    
+    Dim fileName As String
+    Dim filePath As String
+    Dim componentName As String
+    Dim importCount As Long
+    Dim fileCount As Long
+    Dim skippedCount As Long
+    
+    importCount = 0
+    fileCount = 0
+    skippedCount = 0
+    
+    Debug.Print "ImportFromFolder called with:"
+    Debug.Print "  Folder: " & folderPath
+    Debug.Print "  Pattern: " & filePattern
+    
+    ' Check if folder exists
+    On Error GoTo FolderError
+    Debug.Print "  Checking if folder exists..."
+    If (GetAttr(folderPath) And vbDirectory) <> vbDirectory Then
+        Debug.Print "  Folder check failed - going to FolderError"
+        GoTo FolderError
+    End If
+    Debug.Print "  Folder exists: YES"
+    On Error GoTo ImportError
+    
+    ' Count and list all files first
+    Debug.Print "  Scanning for files..."
+    fileName = Dir(folderPath & "\" & filePattern)
+    Do While fileName <> ""
+        fileCount = fileCount + 1
+        Debug.Print "  Found file #" & fileCount & ": " & fileName
+        fileName = Dir()
+    Loop
+    
+    Debug.Print "  Total files found: " & fileCount
+    
+    ' Now import the files
+    If fileCount > 0 Then
+        Debug.Print "  Starting import process..."
+        fileName = Dir(folderPath & "\" & filePattern)
+        Do While fileName <> ""
+            filePath = folderPath & "\" & fileName
+            
+            ' Extract component name from filename (remove extension)
+            componentName = Left(fileName, InStrRev(fileName, ".") - 1)
+            
+            Debug.Print "  Processing: " & fileName
+            Debug.Print "  Component name: " & componentName
+            Debug.Print "  Full path: " & filePath
+            
+            ' Skip importing DevTools to avoid duplicates
+            If componentName = "DevTools" Then
+                Debug.Print "  SKIPPED - DevTools file: " & fileName
+                skippedCount = skippedCount + 1
+            ' Skip files that start with "Module"
+            ElseIf Left(componentName, 6) = "Module" Then
+                Debug.Print "  SKIPPED - Component starts with Module: " & componentName
+                skippedCount = skippedCount + 1
+            ' Check if component already exists
+            ElseIf ComponentExists(componentName, ActiveWorkbook) Then
+                Debug.Print "  SKIPPED - Component already exists: " & componentName
+                skippedCount = skippedCount + 1
+            Else
+                Debug.Print "  Attempting to import..."
+                ' Import the component
+                ActiveWorkbook.VBProject.VBComponents.Import filePath
+                importCount = importCount + 1
+                Debug.Print "  SUCCESS - Imported: " & fileName
+            End If
+            
+            fileName = Dir() ' Get next file
+        Loop
+    End If
+    
+    Debug.Print "  Import summary for folder:"
+    Debug.Print "    Files found: " & fileCount
+    Debug.Print "    Files imported: " & importCount
+    Debug.Print "    Files skipped: " & skippedCount
+    
+    ImportFromFolder = importCount
+    Exit Function
+    
+FolderError:
+    Debug.Print "  FOLDER ERROR:"
+    Debug.Print "    Error Number: " & Err.Number
+    Debug.Print "    Error Description: " & Err.Description
+    Debug.Print "    Folder path: " & folderPath
+    
+    ' Try to provide more specific error info
+    If Err.Number = 53 Then
+        Debug.Print "    Issue: File not found (folder doesn't exist)"
+    ElseIf Err.Number = 76 Then
+        Debug.Print "    Issue: Path not found"
+    End If
+    
+    ImportFromFolder = 0
+    Exit Function
+    
+ImportError:
+    Debug.Print "  IMPORT ERROR for file: " & fileName
+    Debug.Print "    Error Number: " & Err.Number
+    Debug.Print "    Error Description: " & Err.Description
+    Debug.Print "    File path: " & filePath
+    Resume Next
+End Function
+
 Public Sub ImportAll()
     ' Imports all VBA components from the src/ directory into the active workbook
     ' Removes existing non-document components before importing
@@ -245,6 +369,7 @@ Public Sub ImportAll()
     
     Dim wb As Workbook
     Dim importCount As Long
+    Dim totalSkipped As Long
     
     Set wb = ActiveWorkbook
     
@@ -255,6 +380,7 @@ Public Sub ImportAll()
     End If
     
     importCount = 0
+    totalSkipped = 0
     
     Debug.Print "=== ImportAll Started ==="
     Debug.Print "Current workbook: " & wb.Name
@@ -286,9 +412,12 @@ Public Sub ImportAll()
     ' List components after import
     Call ListAllComponents
     
-    MsgBox "Import complete. " & importCount & " components imported from src/ directory." & vbCrLf & _
-           "Workbook: " & wb.Name, _
-           vbInformation, "DevTools - Import Complete"
+    Dim message As String
+    message = "Import complete. " & importCount & " components imported from src/ directory."
+    message = message & vbCrLf & "Note: Files starting with 'Module' were automatically skipped."
+    message = message & vbCrLf & "Workbook: " & wb.Name
+    
+    MsgBox message, vbInformation, "DevTools - Import Complete"
     
     Exit Sub
     
@@ -387,109 +516,6 @@ Private Function ComponentExists(ByVal componentName As String, ByVal targetWB A
             Exit Function
         End If
     Next vbComp
-End Function
-
-Private Function ImportFromFolder(ByVal folderPath As String, ByVal filePattern As String) As Long
-    ' Imports all files matching the pattern from the specified folder
-    ' Returns the count of successfully imported files
-    
-    Dim fileName As String
-    Dim filePath As String
-    Dim componentName As String
-    Dim importCount As Long
-    Dim fileCount As Long
-    
-    importCount = 0
-    fileCount = 0
-    
-    Debug.Print "ImportFromFolder called with:"
-    Debug.Print "  Folder: " & folderPath
-    Debug.Print "  Pattern: " & filePattern
-    
-    ' Check if folder exists
-    On Error GoTo FolderError
-    Debug.Print "  Checking if folder exists..."
-    If (GetAttr(folderPath) And vbDirectory) <> vbDirectory Then
-        Debug.Print "  Folder check failed - going to FolderError"
-        GoTo FolderError
-    End If
-    Debug.Print "  Folder exists: YES"
-    On Error GoTo ImportError
-    
-    ' Count and list all files first
-    Debug.Print "  Scanning for files..."
-    fileName = Dir(folderPath & "\" & filePattern)
-    Do While fileName <> ""
-        fileCount = fileCount + 1
-        Debug.Print "  Found file #" & fileCount & ": " & fileName
-        fileName = Dir()
-    Loop
-    
-    Debug.Print "  Total files found: " & fileCount
-    
-    ' Now import the files
-    If fileCount > 0 Then
-        Debug.Print "  Starting import process..."
-        fileName = Dir(folderPath & "\" & filePattern)
-        Do While fileName <> ""
-            filePath = folderPath & "\" & fileName
-            
-            ' Extract component name from filename (remove extension)
-            componentName = Left(fileName, InStrRev(fileName, ".") - 1)
-            
-            Debug.Print "  Processing: " & fileName
-            Debug.Print "  Component name: " & componentName
-            Debug.Print "  Full path: " & filePath
-            
-            ' Skip importing DevTools to avoid duplicates
-            If componentName <> "DevTools" Then
-                ' Check if component already exists
-                If ComponentExists(componentName, ActiveWorkbook) Then
-                    Debug.Print "  SKIPPED - Component already exists: " & componentName
-                Else
-                    Debug.Print "  Attempting to import..."
-                    ' Import the component
-                    ActiveWorkbook.VBProject.VBComponents.Import filePath
-                    importCount = importCount + 1
-                    Debug.Print "  SUCCESS - Imported: " & fileName
-                End If
-            Else
-                Debug.Print "  SKIPPED - DevTools file: " & fileName
-            End If
-            
-            fileName = Dir() ' Get next file
-        Loop
-    End If
-    
-    Debug.Print "  Import summary for folder:"
-    Debug.Print "    Files found: " & fileCount
-    Debug.Print "    Files imported: " & importCount
-    
-    ImportFromFolder = importCount
-    Exit Function
-    
-FolderError:
-    Debug.Print "  FOLDER ERROR:"
-    Debug.Print "    Error Number: " & Err.Number
-    Debug.Print "    Error Description: " & Err.Description
-    Debug.Print "    Folder path: " & folderPath
-    
-    ' Try to provide more specific error info
-    If Err.Number = 53 Then
-        Debug.Print "    Issue: File not found (folder doesn't exist)"
-    ElseIf Err.Number = 76 Then
-        Debug.Print "    Issue: Path not found"
-    End If
-    
-    ImportFromFolder = 0
-    Exit Function
-    
-ImportError:
-    Debug.Print "  IMPORT ERROR for file: " & fileName
-    Debug.Print "    Error Number: " & Err.Number
-    Debug.Print "    Error Description: " & Err.Description
-    Debug.Print "    File path: " & filePath
-    Resume Next
 End Function
 
 Private Function ProjectRoot() As String
