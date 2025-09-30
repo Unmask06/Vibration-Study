@@ -140,3 +140,12 @@ End Function
 Private Function SafeDiv(ByVal num As Double, ByVal den As Double) As Double
     If den <= 0 Then SafeDiv = 0# Else SafeDiv = num / den
 End Function
+
+' ========= UTILITY FUNCTIONS =========
+
+' Get basic project information
+Public Function GetProjectInfo() As String
+    GetProjectInfo = "Vibration Study Calculator - " & _
+                    "Workbook: " & ThisWorkbook.Name & " - " & _
+                    "Date: " & Format(Date, "yyyy-mm-dd")
+End Function

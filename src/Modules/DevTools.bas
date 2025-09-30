@@ -656,3 +656,83 @@ NextPath:
     Debug.Print "=== End Folder Access Test ==="
 End Sub
 
+' ========= DEVELOPMENT UTILITY FUNCTIONS =========
+
+' Quick test calculation for development purposes
+Public Sub TestCalculation()
+    ' Example calculation procedure for testing
+    Dim result As Double
+    Dim i As Long
+    
+    result = 0
+    For i = 1 To 10
+        result = result + i
+    Next i
+    
+    Debug.Print "Sum of 1 to 10: " & result
+    MsgBox "Test calculation complete. Sum of 1 to 10 = " & result, vbInformation, "DevTools Test"
+End Sub
+
+' Display current project information
+Public Sub ShowProjectInfo()
+    Dim info As String
+    info = "Vibration Study Calculator" & vbCrLf & _
+           "Workbook: " & ThisWorkbook.Name & vbCrLf & _
+           "Path: " & ThisWorkbook.Path & vbCrLf & _
+           "Date: " & Format(Date, "yyyy-mm-dd") & vbCrLf & _
+           "Time: " & Format(Time, "hh:mm:ss")
+    
+    MsgBox info, vbInformation, "Project Information"
+End Sub
+
+' Clear all data validations from a worksheet (useful for development)
+Public Sub ClearAllValidations(Optional wsName As String = "")
+    Dim ws As Worksheet
+    
+    If wsName = "" Then
+        If ActiveSheet Is Nothing Then
+            MsgBox "No active sheet found.", vbExclamation
+            Exit Sub
+        End If
+        Set ws = ActiveSheet
+    Else
+        On Error Resume Next
+        Set ws = ThisWorkbook.Sheets(wsName)
+        On Error GoTo 0
+        If ws Is Nothing Then
+            MsgBox "Worksheet '" & wsName & "' not found.", vbExclamation
+            Exit Sub
+        End If
+    End If
+    
+    ws.Cells.Validation.Delete
+    MsgBox "Cleared all validations from sheet: " & ws.Name, vbInformation
+End Sub
+
+' Reset all module-level variables (useful for development)
+Public Sub ResetModuleVariables()
+    ' Clear DataStructures parameter index
+    Call DataStructures.ClearParameterIndex
+    
+    MsgBox "Reset all module-level variables.", vbInformation
+End Sub
+
+' Quick validation setup for development testing
+Public Sub QuickSetupValidations()
+    On Error GoTo ErrorHandler
+    
+    ' Initialize DataStructures
+    Dim wsIn As Worksheet
+    Set wsIn = ThisWorkbook.Sheets("Inputs")
+    Call DataStructures.InitializeParameterIndex(wsIn)
+    
+    ' Setup table validations
+    Call DataStructures.RefreshAllTableValidations
+    
+    MsgBox "Quick validation setup completed.", vbInformation
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Error in quick setup: " & Err.Description, vbCritical
+End Sub
+
