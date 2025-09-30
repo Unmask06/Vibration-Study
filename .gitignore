@@ -1,0 +1,34 @@
+# Form binary resources (optionally use Git LFS if you need them)
+src/Forms/*.frx
+
+# VS Code noise
+.vscode/
+
+# Windows system files
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+~$*
+*.tmp
+*.temp
+
+# Excel backup files
+*.xlk
+
+# VBA backup files
+*_vbabackup
+
+# Log files
+logs/*.log
+*.log
+
+# Debug files
+debug.txt
+debug_*
+
+# Excel temporary files
+~*.xl*
+
+# VBA editor temporary files
+vba_*.tmp
