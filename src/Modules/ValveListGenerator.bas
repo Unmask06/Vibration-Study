@@ -149,17 +149,12 @@ Public Sub RunCalculations()
     For c = INPUTS_FIRST_COL To lastCol
         Dim tag As String: tag = Trim$(wsIn.Cells(2, c).Value)
         If tag <> "" Then
-            ' Read inputs for this valve
-            Dim inputs As ValveInputs
-            inputs = ReadValveInputsFromColumn(wsIn, c)
-            inputs.tag = tag
-            
             ' Get case type from ValveList table
-            inputs.casetype = GetCaseTypeFromTable(tag)
+            Dim casetype As String: casetype = GetCaseTypeFromTable(tag)
             
-            ' Perform calculation
+            ' Perform calculation using wrapper function for backward compatibility
             Dim result As CalculationResult
-            result = CalculationEngine.CalculateByCase(inputs.casetype, inputs)
+            result = CalculationEngine.CalculateByCaseFromSheet(casetype, wsIn, c)
             
             ' Write results
             Call WriteCalculationResults(wsRes, resultCol, tag, result)
@@ -210,40 +205,6 @@ Private Sub SetupValveColumnDropdowns(ws As Worksheet, columnIndex As Long, valv
         Call DataStructures.ApplyValidationToRange(ws.Cells(stRow, columnIndex), "E3:E6", SHEET_DATA, "Support Type", "Select support type")
     End If
 End Sub
-
-' Read valve inputs from a specific column
-Private Function ReadValveInputsFromColumn(ws As Worksheet, columnIndex As Long) As ValveInputs
-    Dim inputs As ValveInputs
-    
-    ' Read all parameters using DataStructures module
-    inputs.rho = DataStructures.GetParameterDouble(ws, "Fluid density", columnIndex)
-    inputs.gamma = DataStructures.GetParameterDouble(ws, "Ratio of Specific Heat Capacities", columnIndex)
-    inputs.c0 = DataStructures.GetParameterDouble(ws, "Speed of sound", columnIndex)
-    inputs.Mw = DataStructures.GetParameterDouble(ws, "Molecular Weight", columnIndex)
-    inputs.r = DataStructures.GetParameterDouble(ws, "Universal Gas Constant", columnIndex)
-    inputs.Te = DataStructures.GetParameterDouble(ws, "Upstream Temperature", columnIndex)
-    inputs.Pv = DataStructures.GetParameterDouble(ws, "Vapour Pressure", columnIndex)
-    inputs.Kbulk = DataStructures.GetParameterDouble(ws, "Fluid Bulk Modulus", columnIndex)
-    
-    inputs.Dext_mm = DataStructures.GetParameterDouble(ws, "External Main Line Diameter", columnIndex)
-    inputs.Dint_mm = DataStructures.GetParameterDouble(ws, "Internal Main Line Diameter", columnIndex)
-    inputs.T_mm = DataStructures.GetParameterDouble(ws, "Main line Wall Thickness", columnIndex)
-    inputs.Tsch40 = DataStructures.GetParameterDouble(ws, "Main line Wall Thickness for Schedule 40 Piping", columnIndex)
-    inputs.Em = DataStructures.GetParameterDouble(ws, "Young's Modulus of the main line material", columnIndex)
-    inputs.Lup = DataStructures.GetParameterDouble(ws, "Upstream Pipe Length", columnIndex)
-    
-    inputs.P1 = DataStructures.GetParameterDouble(ws, "Upstream Static Pressure", columnIndex)
-    inputs.dP = DataStructures.GetParameterDouble(ws, "Static Pressure drop", columnIndex)
-    inputs.v = DataStructures.GetParameterDouble(ws, "Steady State Fluid Velocity", columnIndex)
-    inputs.W = DataStructures.GetParameterDouble(ws, "Mass Flow Rate", columnIndex)
-    inputs.Pshut = DataStructures.GetParameterDouble(ws, "Pump head at zero flow", columnIndex)
-    
-    inputs.Tclose = DataStructures.GetParameterDouble(ws, "Valve Closing Time", columnIndex)
-    inputs.valvetype = DataStructures.GetParameterString(ws, ROW_VALVE_TYPE, columnIndex)
-    inputs.supporttype = DataStructures.GetParameterString(ws, ROW_PIPE_SUPPORT, columnIndex)
-    
-    ReadValveInputsFromColumn = inputs
-End Function
 
 ' Get case type from the ValveList table
 Private Function GetCaseTypeFromTable(tag As String) As String
@@ -315,6 +276,150 @@ Public Sub RefreshValidations()
     Call DataStructures.RefreshAllTableValidations
     MsgBox "Table validations refreshed.", vbInformation
 End Sub
+
+' Highlight cells based on required input criteria from row 3
+Public Sub HighlightRequiredInputs()
+    Dim wsIn As Worksheet
+    Set wsIn = Sheets(SHEET_INPUTS)
+    
+    ' Clear any existing highlighting first
+    Call ClearHighlighting
+    
+    ' Find the last column with data
+    Dim lastCol As Long
+    lastCol = wsIn.Cells(3, wsIn.Columns.Count).End(xlToLeft).Column
+    
+    ' Start from column E (first valve column) and go to last column
+    Dim col As Long
+    For col = INPUTS_FIRST_COL To lastCol
+        ' Get the case type indicator from row 3 for this column
+        Dim caseTypeValue As String
+        caseTypeValue = Trim$(CStr(wsIn.Cells(3, col).Value))
+        
+        ' Skip if no case type value
+        If caseTypeValue = "" Then GoTo NextColumn
+        
+        ' Find which case type column this represents based on the reference table
+        Dim caseTypeColumn As Long
+        caseTypeColumn = GetCaseTypeColumn(caseTypeValue)
+        
+        If caseTypeColumn > 0 Then
+            Call HighlightColumnBasedOnRequirements(wsIn, col, caseTypeColumn)
+        End If
+        
+NextColumn:
+    Next col
+    
+    MsgBox "Cell highlighting completed based on required inputs.", vbInformation
+End Sub
+
+' Clear all highlighting from the inputs sheet
+Public Sub ClearHighlighting()
+    Dim wsIn As Worksheet
+    Set wsIn = Sheets(SHEET_INPUTS)
+    
+    ' Find the last row and column with data
+    Dim lastRow As Long, lastCol As Long
+    lastRow = wsIn.Cells(wsIn.Rows.Count, "A").End(xlUp).Row
+    lastCol = wsIn.Cells(3, wsIn.Columns.Count).End(xlToLeft).Column
+    
+    ' Clear interior color from the data range starting from column E
+    If lastCol >= INPUTS_FIRST_COL Then
+        wsIn.Range(wsIn.Cells(3, INPUTS_FIRST_COL), wsIn.Cells(lastRow, lastCol)).Interior.ColorIndex = xlNone
+    End If
+End Sub
+
+' Determine which case type column to use based on case type value
+Private Function GetCaseTypeColumn(caseTypeValue As String) As Long
+    ' Reference table column mapping:
+    ' Column 1: Valve Closure (liqclose)
+    ' Column 2: Valve Opening (Liquid/Multiphase) (liqopen)
+    ' Column 3: Valve Opening (Dry Gas) (gasopenrapid)
+    
+    Select Case LCase$(Trim$(caseTypeValue))
+        Case "liqclose", "liquid closure", "valve closure"
+            GetCaseTypeColumn = 1
+        Case "liqopen", "liquid opening", "valve opening liquid", "valve opening multiphase"
+            GetCaseTypeColumn = 2
+        Case "gasopenrapid", "gas opening rapid", "valve opening dry gas", "dry gas"
+            GetCaseTypeColumn = 3
+        Case Else
+            GetCaseTypeColumn = 0  ' Unknown case type
+    End Select
+End Function
+
+' Highlight cells in a column based on requirements from reference table
+Private Sub HighlightColumnBasedOnRequirements(ws As Worksheet, targetCol As Long, caseTypeCol As Long)
+    ' Read requirements from tbRequiredInput table in reference sheet
+    Dim wsRef As Worksheet
+    Set wsRef = Sheets("Ref")  ' Assuming reference sheet is named "Ref"
+    
+    Dim lo As ListObject
+    On Error Resume Next
+    Set lo = wsRef.ListObjects("tbRequiredInput")
+    On Error GoTo 0
+    
+    If lo Is Nothing Then
+        MsgBox "Table 'tbRequiredInput' not found in reference sheet.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Find the last row with parameter data in target sheet
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    
+    ' Loop through each row in the requirements table
+    Dim lr As ListRow, paramRow As Long
+    For Each lr In lo.ListRows
+        Dim paramName As String
+        paramName = Trim$(CStr(lr.Range.Cells(1, 1).Value))  ' First column = Piping Information
+        
+        ' Skip if parameter name is empty
+        If paramName = "" Then GoTo NextParam
+        
+        ' Find the row for this parameter in the target sheet
+        paramRow = FindParameterRow(ws, paramName, lastRow)
+        
+        If paramRow > 0 Then
+            ' Get the requirement value for the specific case type column
+            ' Column mapping: 4=Valve Closure, 5=Valve Opening (Liquid/Multiphase), 6=Valve Opening (Dry Gas)
+            Dim reqColumnIndex As Long
+            reqColumnIndex = 3 + caseTypeCol  ' Offset by 3 to get to requirement columns
+            
+            Dim isRequired As Long
+            isRequired = Val(CStr(lr.Range.Cells(1, reqColumnIndex).Value))
+            
+            ' Apply highlighting based on requirement
+            If isRequired = 1 Then
+                ' Required - Green highlighting
+                ws.Cells(paramRow, targetCol).Interior.Color = RGB(146, 208, 80)  ' Light green
+            Else
+                ' Not required - Orange highlighting
+                ws.Cells(paramRow, targetCol).Interior.Color = RGB(255, 192, 0)   ' Light orange
+            End If
+        End If
+        
+NextParam:
+    Next lr
+End Sub
+
+' Find the row number for a specific parameter name in column A
+Private Function FindParameterRow(ws As Worksheet, paramName As String, lastRow As Long) As Long
+    Dim r As Long
+    For r = 3 To lastRow  ' Start from row 3 (assuming headers in rows 1-2)
+        Dim cellValue As String
+        cellValue = Trim$(CStr(ws.Cells(r, "A").Value))
+        
+        ' Use InStr to find partial matches for flexibility
+        If InStr(1, cellValue, paramName, vbTextCompare) > 0 Or _
+           InStr(1, paramName, cellValue, vbTextCompare) > 0 Then
+            FindParameterRow = r
+            Exit Function
+        End If
+    Next r
+    
+    FindParameterRow = 0  ' Not found
+End Function
 
 ' Null protection for String values
 Private Function NzS(v) As String
