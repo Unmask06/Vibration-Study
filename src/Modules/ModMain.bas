@@ -31,3 +31,21 @@ Public Function GetProjectInfo() As String
                     "Workbook: " & ThisWorkbook.Name & " - " & _
                     "Date: " & Format(Date, "yyyy-mm-dd")
 End Function
+
+' ========= PRESSURE UNIT CONVERSION =========
+Public Sub ConvertPressureUnitsToBarg()
+    ' Convert pressure parameter units from Pa to barg in the Inputs worksheet
+    ' This updates column C units and prepares the system to accept barg input values
+    Dim wsIn As Worksheet
+    
+    On Error GoTo ErrorHandler
+    Set wsIn = Sheets("Inputs")
+    
+    ' Update the units in the worksheet
+    Call ParameterManager.UpdatePressureUnitsToBarG(wsIn)
+    
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Error converting pressure units: " & Err.Description, vbCritical, "Conversion Error"
+End Sub

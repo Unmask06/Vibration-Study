@@ -1,5 +1,4 @@
-Attribute VB_Name = "T28_TableDriven"
-
+Attribute VB_Name = "T28_TableDriven_New"
 Option Explicit
 
 ' ========= CONFIG =========
@@ -94,72 +93,30 @@ Public Sub Calculate_All_From_tbValveList()
         Dim c As Long: c = FindValveColumn(wsIn, tag)
         If c = 0 Then GoTo NextValve
         
-        ' Read Inputs for this valve
-        Dim rho As Double: rho = NzD(wsIn.Cells(idx("Fluid density"), c).value)
-        Dim gamma As Double: gamma = NzD(wsIn.Cells(idx("Ratio of Specific Heat Capacities"), c).value)
-        Dim c0 As Double: c0 = NzD(wsIn.Cells(idx("Speed of sound"), c).value)
-        Dim Dext_mm As Double: Dext_mm = NzD(wsIn.Cells(idx("External Main Line Diameter"), c).value)
-        Dim Dint_mm As Double: Dint_mm = NzD(wsIn.Cells(idx("Internal Main Line Diameter"), c).value)
-        Dim Em As Double: Em = NzD(wsIn.Cells(idx("Young’s Modulus of the main line material"), c).value)
-        Dim Kbulk As Double: Kbulk = NzD(wsIn.Cells(idx("Fluid Bulk Modulus"), c).value)
-        Dim Lup As Double: Lup = NzD(wsIn.Cells(idx("Upstream Pipe Length"), c).value)
-        Dim Mw As Double: Mw = NzD(wsIn.Cells(idx("Molecular Weight"), c).value)
-        Dim P1 As Double: P1 = NzD(wsIn.Cells(idx("Upstream Static Pressure"), c).value)
-        Dim Pshut As Double: Pshut = NzD(wsIn.Cells(idx("Pump head at zero flow"), c).value)
-        Dim Pv As Double: Pv = NzD(wsIn.Cells(idx("Vapour Pressure"), c).value)
-        Dim dP As Double: dP = NzD(wsIn.Cells(idx("Static Pressure drop"), c).value)
-        Dim r As Double: r = NzD(wsIn.Cells(idx("Universal Gas Constant"), c).value)
-        Dim T_mm As Double: T_mm = NzD(wsIn.Cells(idx("Main line Wall Thickness"), c).value)
-        Dim Tclose As Double: Tclose = NzD(wsIn.Cells(idx("Valve Closing Time"), c).value)
-        Dim Te As Double: Te = NzD(wsIn.Cells(idx("Upstream Temperature"), c).value)
-        Dim v As Double: v = NzD(wsIn.Cells(idx("Steady State Fluid Velocity"), c).value)
-        Dim W As Double: W = NzD(wsIn.Cells(idx("Mass Flow Rate"), c).value)
-        Dim Tsch40 As Double: Tsch40 = NzD(wsIn.Cells(idx("Main line Wall Thickness for Schedule 40 Piping"), c).value)
-        Dim valvetype As String: valvetype = NzS(wsIn.Cells(idx(ROW_VALVE_TYPE), c).value)
-        Dim supporttype As String: supporttype = NzS(wsIn.Cells(idx(ROW_PIPE_SUPPORT), c).value)
+        ' Build inputs structure using the new modular approach
+        Dim inputs As ValveInputs
+        inputs = BuildValveInputs(wsIn, c, tag, casetype)
         
-        ' Derived
-        Dim Psi As Double: If Tsch40 > 0 Then Psi = T_mm / Tsch40
-        Dim theta As Double: theta = ThetaFromSupport(supporttype)
-        
-        If c0 <= 0 And rho > 0 And Dext_mm > 0 And T_mm > 0 And Em > 0 And Kbulk > 0 Then
-            c0 = WaveSpeed_EI(rho, Dext_mm, T_mm, Em, Kbulk)
+        ' Calculate wave speed if needed
+        If inputs.c0 <= 0 Then
+            inputs.c0 = CalculationEngine.CalculateWaveSpeed(inputs)
         End If
         
-        ' Compute
-        Dim Ppeak As Double, Fmax As Double, Flim As Double, LOF As Double, flagTxt As String
-        Flim = Flim_kN_EI(Psi, Dext_mm / 1000#, theta, Dint_mm / 1000#)
-        
-        Select Case LCase$(casetype)
-            Case "liqclose"
-                If Lup > 100# Then
-                    LOF = 1#: flagTxt = "Lup>100 m → Detailed surge analysis"
-                Else
-                    Ppeak = rho * c0 * v                 ' Joukowsky
-                    Fmax = ForceFromPressure_kN(Ppeak, Dint_mm / 1000#)
-                    LOF = SafeDiv(Fmax, Flim)
-                End If
-            Case "gasopenrapid"
-                Fmax = 0#                               ' TODO: plug EI gas-opening
-                LOF = SafeDiv(Fmax, Flim)
-            Case "liqopen"
-                Fmax = 0#                               ' TODO: plug EI liquid-opening
-                LOF = SafeDiv(Fmax, Flim)
-            Case Else
-                flagTxt = "Unknown CaseType"
-        End Select
+        ' Perform calculation using the modular calculation engine
+        Dim result As CalculationResult
+        result = CalculationEngine.CalculateByCase(casetype, inputs)
         
         ' Write results
         With wsRes
             .Cells(resRow, 1).value = tag
             .Cells(resRow, 2).value = casetype
-            .Cells(resRow, 3).value = valvetype
-            .Cells(resRow, 4).value = supporttype
-            .Cells(resRow, 5).value = Ppeak
-            .Cells(resRow, 6).value = Fmax
-            .Cells(resRow, 7).value = Flim
-            .Cells(resRow, 8).value = LOF
-            .Cells(resRow, 9).value = flagTxt
+            .Cells(resRow, 3).value = inputs.valvetype
+            .Cells(resRow, 4).value = inputs.supporttype
+            .Cells(resRow, 5).value = result.Ppeak
+            .Cells(resRow, 6).value = result.Fmax
+            .Cells(resRow, 7).value = result.Flim
+            .Cells(resRow, 8).value = result.LOF
+            .Cells(resRow, 9).value = result.FlagText
         End With
         
         resRow = resRow + 1
@@ -188,10 +145,11 @@ Private Function BuildValveInputs(wsIn As Worksheet, columnIndex As Long, tag As
     inputs.Kbulk = ParameterManager.GetParameterDouble(wsIn, "Fluid Bulk Modulus", columnIndex)
     inputs.Lup = ParameterManager.GetParameterDouble(wsIn, "Upstream Pipe Length", columnIndex)
     inputs.Mw = ParameterManager.GetParameterDouble(wsIn, "Molecular Weight", columnIndex)
-    inputs.P1 = ParameterManager.GetParameterDouble(wsIn, "Upstream Static Pressure", columnIndex)
-    inputs.Pshut = ParameterManager.GetParameterDouble(wsIn, "Pump head at zero flow", columnIndex)
-    inputs.Pv = ParameterManager.GetParameterDouble(wsIn, "Vapour Pressure", columnIndex)
-    inputs.dP = ParameterManager.GetParameterDouble(wsIn, "Static Pressure drop", columnIndex)
+    ' Pressure parameters - convert from barg input to Pa for calculations
+    inputs.P1 = ParameterManager.GetPressureParameterPa(wsIn, "Upstream Static Pressure", columnIndex)
+    inputs.Pshut = ParameterManager.GetPressureParameterPa(wsIn, "Pump head at zero flow", columnIndex)
+    inputs.Pv = ParameterManager.GetPressureParameterPa(wsIn, "Vapour Pressure", columnIndex)
+    inputs.dP = ParameterManager.GetPressureParameterPa(wsIn, "Static Pressure drop", columnIndex)
     inputs.r = ParameterManager.GetParameterDouble(wsIn, "Universal Gas Constant", columnIndex)
     inputs.T_mm = ParameterManager.GetParameterDouble(wsIn, "Main line Wall Thickness", columnIndex)
     inputs.Tclose = ParameterManager.GetParameterDouble(wsIn, "Valve Closing Time", columnIndex)

@@ -119,3 +119,62 @@ Private Function NzS(v) As String
     If IsError(v) Then Exit Function
     NzS = CStr(v)
 End Function
+
+' ========= UNIT CONVERSION FUNCTIONS =========
+' Convert pressure from barg to Pa (absolute pressure in Pascals)
+' barg (bar gauge) = bar above atmospheric pressure
+' Pa = (barg + 1.01325) × 100000 (converting to absolute pressure in Pa)
+Public Function BargToPa(ByVal pressureBarg As Double) As Double
+    ' Convert barg to absolute bar, then to Pa
+    ' 1 bar = 100000 Pa
+    ' Atmospheric pressure = 1.01325 bar
+    BargToPa = (pressureBarg + 1.01325) * 100000#
+End Function
+
+' Convert pressure from Pa to barg
+Public Function PaToBarg(ByVal pressurePa As Double) As Double
+    ' Convert Pa to absolute bar, then subtract atmospheric pressure
+    PaToBarg = (pressurePa / 100000#) - 1.01325
+End Function
+
+' Get parameter value as Double with automatic barg to Pa conversion for pressure parameters
+Public Function GetPressureParameterPa(ws As Worksheet, parameterName As String, columnIndex As Long) As Double
+    Dim value As Variant
+    value = GetParameterValue(ws, parameterName, columnIndex)
+    Dim bargValue As Double: bargValue = NzD(value)
+    GetPressureParameterPa = BargToPa(bargValue)
+End Function
+
+' ========= WORKSHEET HELPER FUNCTIONS =========
+' Update pressure parameter units from Pa to barg in column C
+Public Sub UpdatePressureUnitsToBarG(ws As Worksheet)
+    If Not paramIdx.IsInitialized Then
+        InitializeParameterIndex ws
+    End If
+    
+    ' List of pressure parameters to update
+    Dim pressureParams As Variant
+    pressureParams = Array("Upstream Static Pressure", "Pump head at zero flow", "Vapour Pressure", "Static Pressure drop")
+    
+    Dim i As Long
+    For i = 0 To UBound(pressureParams)
+        Dim paramName As String: paramName = pressureParams(i)
+        Dim rowIndex As Long: rowIndex = GetParameterRow(paramName)
+        
+        If rowIndex > 0 Then
+            ' Update the unit in column C from "Pa" to "barg"
+            Dim currentUnit As String: currentUnit = Trim$(ws.Cells(rowIndex, 3).value)
+            If LCase$(currentUnit) = "pa" Or LCase$(currentUnit) = "pascal" Then
+                ws.Cells(rowIndex, 3).value = "barg"
+                ' Optional: Add a comment to indicate the change
+                ws.Cells(rowIndex, 3).AddComment "Unit changed from " & currentUnit & " to barg - values now expected in bar gauge"
+            End If
+        End If
+    Next i
+    
+    MsgBox "Updated pressure parameter units to barg in column C for:" & vbCrLf & _
+           "• Upstream Static Pressure" & vbCrLf & _
+           "• Pump head at zero flow" & vbCrLf & _
+           "• Vapour Pressure" & vbCrLf & _
+           "• Static Pressure drop", vbInformation, "Unit Conversion Complete"
+End Sub
