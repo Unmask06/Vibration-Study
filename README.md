@@ -150,8 +150,7 @@ Your existing VBA modules have been organized in `src/Modules/`:
 - `CalculationEngine.bas`
 - `DataStructures.bas`
 - `ParameterManager.bas`
-- `T28_TableDriven.bas`
-- `T28_TableDriven_New.bas`
+- `T28_TableDriven.bas` (contains the new modular calculation engine)
 - `T28_UI_Calc.bas`
 - `TableEventHandler.bas`
 - `TableValidationManager.bas`

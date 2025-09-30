@@ -1,4 +1,4 @@
-Attribute VB_Name = "T28_TableDriven_New"
+Attribute VB_Name = "T28_TableDriven"
 Option Explicit
 
 ' ========= CONFIG =========

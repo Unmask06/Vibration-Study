@@ -1,4 +1,3 @@
-Attribute VB_Name = "DevTools"
 Option Explicit
 
 ' VBA Import/Export Development Tools
@@ -6,13 +5,163 @@ Option Explicit
 ' Purpose: Facilitate development workflow between VS Code and Excel VBE
 ' Requirements: Microsoft Visual Basic for Applications Extensibility 5.3 reference
 '               Trust access to the VBA project object model enabled
+' Usage: Designed for use in Personal Add-in with Ribbon controls
 
 ' ============================================================================
-' PUBLIC PROCEDURES
+' PUBLIC RIBBON PROCEDURES
+' ============================================================================
+
+Public Sub ExportAllRibbon(control As IRibbonControl)
+    ' Ribbon callback for ExportAll functionality
+    ' Exports all VBA components from the active workbook to the src/ directory
+    
+    On Error GoTo ErrorHandler
+    
+    ' Ensure we're working with the active workbook, not the add-in workbook
+    If ActiveWorkbook Is Nothing Then
+        MsgBox "No active workbook found. Please open a workbook first.", _
+               vbExclamation, "DevTools - No Active Workbook"
+        Exit Sub
+    End If
+    
+    ' Check if active workbook has VS Code setup
+    If Not IsVSCodeProject() Then
+        MsgBox "The active workbook is not part of a VS Code setup." & vbCrLf & _
+               "Please ensure the workbook is in a folder with a 'src' directory structure.", _
+               vbExclamation, "DevTools - Not a VS Code Project"
+        Exit Sub
+    End If
+    
+    ' Call the main export procedure
+    Call ExportAll
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Error in ExportAllRibbon: " & Err.Number & " - " & Err.Description, _
+           vbCritical, "DevTools - Ribbon Error"
+End Sub
+
+Public Sub ImportAllRibbon(control As IRibbonControl)
+    ' Ribbon callback for ImportAll functionality
+    ' Imports all VBA components from the src/ directory into the active workbook
+    
+    On Error GoTo ErrorHandler
+    
+    ' Ensure we're working with the active workbook, not the add-in workbook
+    If ActiveWorkbook Is Nothing Then
+        MsgBox "No active workbook found. Please open a workbook first.", _
+               vbExclamation, "DevTools - No Active Workbook"
+        Exit Sub
+    End If
+    
+    ' Check if active workbook has VS Code setup
+    If Not IsVSCodeProject() Then
+        MsgBox "The active workbook is not part of a VS Code setup." & vbCrLf & _
+               "Please ensure the workbook is in a folder with a 'src' directory structure.", _
+               vbExclamation, "DevTools - Not a VS Code Project"
+        Exit Sub
+    End If
+    
+    ' Call the main import procedure
+    Call ImportAll
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Error in ImportAllRibbon: " & Err.Number & " - " & Err.Description, _
+           vbCritical, "DevTools - Ribbon Error"
+End Sub
+
+' ============================================================================
+' ALTERNATIVE RIBBON PROCEDURES (if the above don't work)
+' ============================================================================
+
+Public Sub RunExportAll(control As IRibbonControl)
+    ' Alternative ribbon callback using Application.Run
+    On Error GoTo ErrorHandler
+    
+    If ActiveWorkbook Is Nothing Then
+        MsgBox "No active workbook found. Please open a workbook first.", _
+               vbExclamation, "DevTools - No Active Workbook"
+        Exit Sub
+    End If
+    
+    ' Use Application.Run to explicitly call the procedure from this workbook
+    Application.Run ThisWorkbook.Name & "!ExportAllRibbon", control
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Error running export: " & Err.Number & " - " & Err.Description, _
+           vbCritical, "DevTools - Export Error"
+End Sub
+
+Public Sub RunImportAll(control As IRibbonControl)
+    ' Alternative ribbon callback using Application.Run
+    On Error GoTo ErrorHandler
+    
+    If ActiveWorkbook Is Nothing Then
+        MsgBox "No active workbook found. Please open a workbook first.", _
+               vbExclamation, "DevTools - No Active Workbook"
+        Exit Sub
+    End If
+    
+    ' Use Application.Run to explicitly call the procedure from this workbook
+    Application.Run ThisWorkbook.Name & "!ImportAllRibbon", control
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Error running import: " & Err.Number & " - " & Err.Description, _
+           vbCritical, "DevTools - Import Error"
+End Sub
+
+' ============================================================================
+' VALIDATION FUNCTIONS
+' ============================================================================
+
+Private Function IsVSCodeProject() As Boolean
+    ' Checks if the active workbook is part of a VS Code project setup
+    ' Returns True if a src directory exists in the project structure
+    
+    On Error GoTo NotVSCodeProject
+    
+    ' Ensure we have an active workbook
+    If ActiveWorkbook Is Nothing Then
+        IsVSCodeProject = False
+        Exit Function
+    End If
+    
+    Dim projectRootPath As String
+    Dim SrcPath As String
+    
+    ' Get the project root directory
+    projectRootPath = ProjectRoot()
+    
+    ' Check if we got a valid project root
+    If projectRootPath = "" Then
+        IsVSCodeProject = False
+        Exit Function
+    End If
+    
+    SrcPath = projectRootPath & "\src"
+    
+    ' Check if src directory exists
+    If (GetAttr(SrcPath) And vbDirectory) = vbDirectory Then
+        IsVSCodeProject = True
+    Else
+        IsVSCodeProject = False
+    End If
+    
+    Exit Function
+    
+NotVSCodeProject:
+    IsVSCodeProject = False
+End Function
+
+' ============================================================================
+' PUBLIC PROCEDURES (Modified for Add-in use)
 ' ============================================================================
 
 Public Sub ExportAll()
-    ' Exports all VBA components from the current workbook to the src/ directory
+    ' Exports all VBA components from the active workbook to the src/ directory
     ' Components are organized by type: Modules/, Classes/, Forms/
     
     On Error GoTo ErrorHandler
@@ -25,7 +174,14 @@ Public Sub ExportAll()
     Dim subFolder As String
     Dim exportCount As Long
     
-    Set wb = ThisWorkbook
+    Set wb = ActiveWorkbook
+    
+    ' Verify we have a valid workbook
+    If wb Is Nothing Then
+        MsgBox "No active workbook found.", vbExclamation, "DevTools - Export Error"
+        Exit Sub
+    End If
+    
     exportCount = 0
     
     ' Ensure src directories exist
@@ -69,7 +225,8 @@ Public Sub ExportAll()
 NextComponent:
     Next vbComp
     
-    MsgBox "Export complete. " & exportCount & " components exported to src/ directory.", _
+    MsgBox "Export complete. " & exportCount & " components exported to src/ directory." & vbCrLf & _
+           "Workbook: " & wb.Name, _
            vbInformation, "DevTools - Export Complete"
     
     Exit Sub
@@ -78,11 +235,10 @@ ErrorHandler:
     MsgBox "Error during export: " & Err.Number & " - " & Err.Description & vbCrLf & _
            "Ensure VBIDE reference is enabled and trust access is granted.", _
            vbCritical, "DevTools - Export Error"
-    Err.Raise Err.Number, "DevTools.ExportAll", Err.Description
 End Sub
 
 Public Sub ImportAll()
-    ' Imports all VBA components from the src/ directory into the current workbook
+    ' Imports all VBA components from the src/ directory into the active workbook
     ' Removes existing non-document components before importing
     
     On Error GoTo ErrorHandler
@@ -90,7 +246,14 @@ Public Sub ImportAll()
     Dim wb As Workbook
     Dim importCount As Long
     
-    Set wb = ThisWorkbook
+    Set wb = ActiveWorkbook
+    
+    ' Verify we have a valid workbook
+    If wb Is Nothing Then
+        MsgBox "No active workbook found.", vbExclamation, "DevTools - Import Error"
+        Exit Sub
+    End If
+    
     importCount = 0
     
     Debug.Print "=== ImportAll Started ==="
@@ -100,7 +263,7 @@ Public Sub ImportAll()
     ' Show paths being used
     Call ShowPaths
     
-    ' Remove all existing code (except document modules)
+    ' Remove all existing code (except document modules and DevTools if it exists)
     Debug.Print "=== Starting RemoveAllCode ==="
     Call RemoveAllCode(wb)
     Debug.Print "=== RemoveAllCode Complete ==="
@@ -123,7 +286,8 @@ Public Sub ImportAll()
     ' List components after import
     Call ListAllComponents
     
-    MsgBox "Import complete. " & importCount & " components imported from src/ directory.", _
+    MsgBox "Import complete. " & importCount & " components imported from src/ directory." & vbCrLf & _
+           "Workbook: " & wb.Name, _
            vbInformation, "DevTools - Import Complete"
     
     Exit Sub
@@ -183,7 +347,7 @@ End Sub
 
 Private Sub RemoveAllCode(ByVal targetWB As Workbook)
     ' Removes all non-document VBA components from the specified workbook
-    ' Preserves ThisWorkbook, Sheet modules, and DevTools module
+    ' Preserves ThisWorkbook, Sheet modules, and any DevTools module
     
     Dim vbComp As VBIDE.VBComponent
     Dim compName As String
@@ -196,7 +360,7 @@ Private Sub RemoveAllCode(ByVal targetWB As Workbook)
     For i = targetWB.VBProject.VBComponents.Count To 1 Step -1
         Set vbComp = targetWB.VBProject.VBComponents(i)
         
-        ' Only remove non-document components, but preserve DevTools
+        ' Only remove non-document components, but preserve any DevTools module
         If vbComp.Type <> vbext_ct_Document And vbComp.Name <> "DevTools" Then
             compName = vbComp.Name
             targetWB.VBProject.VBComponents.Remove vbComp
@@ -210,12 +374,28 @@ Private Sub RemoveAllCode(ByVal targetWB As Workbook)
     Debug.Print "RemoveAllCode: " & removeCount & " components removed"
 End Sub
 
+Private Function ComponentExists(ByVal componentName As String, ByVal targetWB As Workbook) As Boolean
+    ' Checks if a VBA component with the given name already exists in the workbook
+    
+    Dim vbComp As VBIDE.VBComponent
+    
+    ComponentExists = False
+    
+    For Each vbComp In targetWB.VBProject.VBComponents
+        If vbComp.Name = componentName Then
+            ComponentExists = True
+            Exit Function
+        End If
+    Next vbComp
+End Function
+
 Private Function ImportFromFolder(ByVal folderPath As String, ByVal filePattern As String) As Long
     ' Imports all files matching the pattern from the specified folder
     ' Returns the count of successfully imported files
     
     Dim fileName As String
     Dim filePath As String
+    Dim componentName As String
     Dim importCount As Long
     Dim fileCount As Long
     
@@ -254,16 +434,25 @@ Private Function ImportFromFolder(ByVal folderPath As String, ByVal filePattern 
         Do While fileName <> ""
             filePath = folderPath & "\" & fileName
             
+            ' Extract component name from filename (remove extension)
+            componentName = Left(fileName, InStrRev(fileName, ".") - 1)
+            
             Debug.Print "  Processing: " & fileName
+            Debug.Print "  Component name: " & componentName
             Debug.Print "  Full path: " & filePath
             
             ' Skip importing DevTools to avoid duplicates
-            If Left(fileName, 8) <> "DevTools" Then
-                Debug.Print "  Attempting to import..."
-                ' Import the component
-                ThisWorkbook.VBProject.VBComponents.Import filePath
-                importCount = importCount + 1
-                Debug.Print "  SUCCESS - Imported: " & fileName
+            If componentName <> "DevTools" Then
+                ' Check if component already exists
+                If ComponentExists(componentName, ActiveWorkbook) Then
+                    Debug.Print "  SKIPPED - Component already exists: " & componentName
+                Else
+                    Debug.Print "  Attempting to import..."
+                    ' Import the component
+                    ActiveWorkbook.VBProject.VBComponents.Import filePath
+                    importCount = importCount + 1
+                    Debug.Print "  SUCCESS - Imported: " & fileName
+                End If
             Else
                 Debug.Print "  SKIPPED - DevTools file: " & fileName
             End If
@@ -304,14 +493,20 @@ ImportError:
 End Function
 
 Private Function ProjectRoot() As String
-    ' Returns the project root directory (one level up from the workbook folder)
+    ' Returns the project root directory based on active workbook location
     ' Handles OneDrive SharePoint URLs by converting to local paths
     
     Dim workbookPath As String
     Dim workbookDir As String
     Dim lastSlash As Long
     
-    workbookPath = ThisWorkbook.FullName
+    ' Use active workbook instead of assuming a specific workbook
+    If ActiveWorkbook Is Nothing Then
+        ProjectRoot = ""
+        Exit Function
+    End If
+    
+    workbookPath = ActiveWorkbook.FullName
     
     ' Check if this is a OneDrive SharePoint URL
     If InStr(workbookPath, "sharepoint.com") > 0 Or InStr(workbookPath, "https://") = 1 Then
@@ -326,12 +521,24 @@ Private Function ProjectRoot() As String
         workbookDir = workbookPath ' Fallback, though this shouldn't happen
     End If
     
-    ' Go up one level to get the project root (since workbook is in workbook\ subfolder)
-    lastSlash = InStrRev(workbookDir, "\")
-    If lastSlash > 0 Then
-        ProjectRoot = Left(workbookDir, lastSlash - 1)
+    ' For add-in use, assume the workbook is already in the project root
+    ' or look for a parent directory with src folder
+    If Dir(workbookDir & "\src", vbDirectory) <> "" Then
+        ProjectRoot = workbookDir
     Else
-        ProjectRoot = workbookDir ' Fallback to workbook directory
+        ' Try going up one level
+        lastSlash = InStrRev(workbookDir, "\")
+        If lastSlash > 0 Then
+            Dim parentDir As String
+            parentDir = Left(workbookDir, lastSlash - 1)
+            If Dir(parentDir & "\src", vbDirectory) <> "" Then
+                ProjectRoot = parentDir
+            Else
+                ProjectRoot = workbookDir ' Fallback to workbook directory
+            End If
+        Else
+            ProjectRoot = workbookDir
+        End If
     End If
 End Function
 
@@ -388,9 +595,9 @@ Public Sub ListAllComponents()
     Dim vbComp As VBIDE.VBComponent
     Dim compTypeStr As String
     
-    Debug.Print "=== VBA Components in " & ThisWorkbook.Name & " ==="
+    Debug.Print "=== VBA Components in " & ActiveWorkbook.Name & " ==="
     
-    For Each vbComp In ThisWorkbook.VBProject.VBComponents
+    For Each vbComp In ActiveWorkbook.VBProject.VBComponents
         Select Case vbComp.Type
             Case vbext_ct_StdModule: compTypeStr = "Standard Module"
             Case vbext_ct_ClassModule: compTypeStr = "Class Module"
@@ -406,14 +613,20 @@ Public Sub ListAllComponents()
 End Sub
 
 Public Sub ShowPaths()
-    ' Debugging helper: Shows the paths that DevTools will use
+    ' Debugging helper: Shows the paths that DevTools will use for active workbook
     
     Debug.Print "=== DevTools Paths ==="
-    Debug.Print "ThisWorkbook.FullName: " & ThisWorkbook.FullName
+    If ActiveWorkbook Is Nothing Then
+        Debug.Print "No active workbook found"
+    Else
+        Debug.Print "ActiveWorkbook.Name: " & ActiveWorkbook.Name
+        Debug.Print "ActiveWorkbook.FullName: " & ActiveWorkbook.FullName
+    End If
     Debug.Print "Project Root: " & ProjectRoot()
     Debug.Print "Modules Path: " & SrcPath("Modules")
     Debug.Print "Classes Path: " & SrcPath("Classes")
     Debug.Print "Forms Path: " & SrcPath("Forms")
+    Debug.Print "Is VS Code Project: " & IsVSCodeProject()
     Debug.Print "=== End Paths ==="
 End Sub
 
@@ -466,3 +679,7 @@ NextPath:
     
     Debug.Print "=== End Folder Access Test ==="
 End Sub
+
+
+
+
