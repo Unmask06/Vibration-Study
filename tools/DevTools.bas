@@ -412,7 +412,8 @@ Private Function ImportFromFolder(ByVal folderPath As String, ByVal filePattern 
     Dim componentName As String
     Dim importCount As Long
     Dim fileCount As Long
-    Dim worksheetName As String
+    Dim worksheetDisplayName As String
+    Dim worksheetInternalName As String
     
     importCount = 0
     fileCount = 0
@@ -458,15 +459,16 @@ Private Function ImportFromFolder(ByVal folderPath As String, ByVal filePattern 
             
             ' Check if this is a worksheet-specific module
             If Left(componentName, 7) = "Module_" Then
-                worksheetName = Mid(componentName, 8) ' Remove "Module_" prefix
-                Debug.Print "  Detected worksheet module for: " & worksheetName
+                worksheetDisplayName = Mid(componentName, 8) ' Remove "Module_" prefix
+                worksheetInternalName = GetWorksheetInternalName(worksheetDisplayName)
+                Debug.Print "  Detected worksheet module for: " & worksheetDisplayName & " (internal: " & worksheetInternalName & ")"
                 
-                ' Import code into worksheet module
-                If ImportWorksheetCode(filePath, worksheetName) Then
+                ' Import code into worksheet module using internal name
+                If ImportWorksheetCode(filePath, worksheetInternalName) Then
                     importCount = importCount + 1
-                    Debug.Print "  SUCCESS - Imported worksheet code for: " & worksheetName
+                    Debug.Print "  SUCCESS - Imported worksheet code for: " & worksheetDisplayName
                 Else
-                    Debug.Print "  FAILED - Could not import worksheet code for: " & worksheetName
+                    Debug.Print "  FAILED - Could not import worksheet code for: " & worksheetDisplayName
                 End If
             ElseIf componentName <> "DevTools" Then
                 ' Handle regular modules
@@ -818,10 +820,10 @@ Private Function ExportWorksheetCode(ByVal vbComp As VBIDE.VBComponent) As Boole
     
     Dim exportPath As String
     Dim fileName As String
-    Dim tempFilePath As String
     Dim fileNum As Integer
     Dim codeText As String
     Dim lineCount As Long
+    Dim worksheetDisplayName As String
     
     ExportWorksheetCode = False
     
@@ -836,8 +838,11 @@ Private Function ExportWorksheetCode(ByVal vbComp As VBIDE.VBComponent) As Boole
         Exit Function
     End If
     
-    ' Build export file path
-    fileName = "Module_" & vbComp.Name & ".bas"
+    ' Get the worksheet display name instead of internal name
+    worksheetDisplayName = GetWorksheetDisplayName(vbComp.Name)
+    
+    ' Build export file path using display name
+    fileName = "Module_" & worksheetDisplayName & ".bas"
     exportPath = SrcPath("Modules") & "\" & fileName
     
     ' Get the code from the worksheet module
@@ -849,7 +854,7 @@ Private Function ExportWorksheetCode(ByVal vbComp As VBIDE.VBComponent) As Boole
     
     ' Create a properly formatted .bas file content
     ' VBA .bas files need specific header format
-    codeText = "Attribute VB_Name = """ & "Module_" & vbComp.Name & """" & vbCrLf
+    codeText = "Attribute VB_Name = """ & "Module_" & worksheetDisplayName & """" & vbCrLf
     codeText = codeText & vbComp.CodeModule.Lines(1, lineCount)
     
     ' Write to file
@@ -871,4 +876,182 @@ ExportError:
     On Error GoTo 0
     
     ExportWorksheetCode = False
+End Function
+
+Private Function GetWorksheetDisplayName(ByVal internalName As String) As String
+    ' Gets the display name of a worksheet from its internal VBA name
+    ' Returns the display name (e.g., "Inputs") instead of internal name (e.g., "Sheet4")
+    
+    On Error GoTo UseInternalName
+    
+    Dim ws As Worksheet
+    Dim wb As Workbook
+    
+    Set wb = ActiveWorkbook
+    
+    ' Handle ThisWorkbook special case
+    If internalName = "ThisWorkbook" Then
+        GetWorksheetDisplayName = "ThisWorkbook"
+        Exit Function
+    End If
+    
+    ' Find the worksheet by CodeName (internal name)
+    For Each ws In wb.Worksheets
+        If ws.CodeName = internalName Then
+            GetWorksheetDisplayName = ws.Name
+            Exit Function
+        End If
+    Next ws
+    
+UseInternalName:
+    ' Fallback to internal name if display name cannot be found
+    GetWorksheetDisplayName = internalName
+End Function
+
+Private Function GetWorksheetInternalName(ByVal displayName As String) As String
+    ' Gets the internal VBA name of a worksheet from its display name
+    ' Returns the internal name (e.g., "Sheet4") from display name (e.g., "Inputs")
+    
+    On Error GoTo UseDisplayName
+    
+    Dim ws As Worksheet
+    Dim wb As Workbook
+    
+    Set wb = ActiveWorkbook
+    
+    ' Handle ThisWorkbook special case
+    If displayName = "ThisWorkbook" Then
+        GetWorksheetInternalName = "ThisWorkbook"
+        Exit Function
+    End If
+    
+    ' Find the worksheet by display name
+    For Each ws In wb.Worksheets
+        If ws.Name = displayName Then
+            GetWorksheetInternalName = ws.CodeName
+            Exit Function
+        End If
+    Next ws
+    
+UseDisplayName:
+    ' Fallback to display name if internal name cannot be found
+    GetWorksheetInternalName = displayName
+End Function
+    
+    ' Count and list all files first
+    Debug.Print "  Scanning for files..."
+    fileName = Dir(folderPath & "\" & filePattern)
+    Do While fileName <> ""
+        fileCount = fileCount + 1
+        Debug.Print "  Found file #" & fileCount & ": " & fileName
+        fileName = Dir()
+    Loop
+    
+    Debug.Print "  Total files found: " & fileCount
+    
+    ' Now import the files
+    If fileCount > 0 Then
+        Debug.Print "  Starting import process..."
+        fileName = Dir(folderPath & "\" & filePattern)
+        Do While fileName <> ""
+            filePath = folderPath & "\" & fileName
+            
+            ' Extract component name from filename (remove extension)
+            componentName = Left(fileName, InStrRev(fileName, ".") - 1)
+            
+            Debug.Print "  Processing: " & fileName
+            Debug.Print "  Component name: " & componentName
+            Debug.Print "  Full path: " & filePath
+            
+            ' Check if this is a worksheet-specific module
+            If Left(componentName, 7) = "Module_" Then
+                worksheetDisplayName = Mid(componentName, 8) ' Remove "Module_" prefix
+                worksheetInternalName = GetWorksheetInternalName(worksheetDisplayName)
+                Debug.Print "  Detected worksheet module for: " & worksheetDisplayName & " (internal: " & worksheetInternalName & ")"
+                
+                ' Import code into worksheet module using internal name
+                If ImportWorksheetCode(filePath, worksheetInternalName) Then
+                    importCount = importCount + 1
+                    Debug.Print "  SUCCESS - Imported worksheet code for: " & worksheetDisplayName
+                Else
+                    Debug.Print "  FAILED - Could not import worksheet code for: " & worksheetDisplayName
+                End If
+            ElseIf componentName <> "DevTools" Then
+                ' Handle regular modules
+                If ComponentExists(componentName, ActiveWorkbook) Then
+                    Debug.Print "  SKIPPED - Component already exists: " & componentName
+                Else
+                    Debug.Print "  Attempting to import..."
+                    ' Import the component
+                    ActiveWorkbook.VBProject.VBComponents.Import filePath
+                    importCount = importCount + 1
+                    Debug.Print "  SUCCESS - Imported: " & fileName
+                End If
+            Else
+                Debug.Print "  SKIPPED - DevTools file: " & fileName
+            End If
+            
+            fileName = Dir() ' Get next file
+        Loop
+    End If
+    
+    Debug.Print "  Import summary for folder:"
+    Debug.Print "    Files found: " & fileCount
+    Debug.Print "    Files imported: " & importCount
+    
+    ImportFromFolder = importCount
+    Exit Function
+    
+FolderError:
+    Debug.Print "  FOLDER ERROR:"
+    Debug.Print "    Error Number: " & Err.Number
+    Debug.Print "    Error Description: " & Err.Description
+    Debug.Print "    Folder path: " & folderPath
+    
+    ' Try to provide more specific error info
+    If Err.Number = 53 Then
+        Debug.Print "    Issue: File not found (folder doesn't exist)"
+    ElseIf Err.Number = 76 Then
+        Debug.Print "    Issue: Path not found"
+    End If
+    
+    ImportFromFolder = 0
+    Exit Function
+    
+ImportError:
+    Debug.Print "  IMPORT ERROR for file: " & fileName
+    Debug.Print "    Error Number: " & Err.Number
+    Debug.Print "    Error Description: " & Err.Description
+    Debug.Print "    File path: " & filePath
+    Resume Next
+End Function
+
+Private Function GetWorksheetInternalName(ByVal displayName As String) As String
+    ' Gets the internal VBA name of a worksheet from its display name
+    ' Returns the internal name (e.g., "Sheet4") from display name (e.g., "Inputs")
+    
+    On Error GoTo UseDisplayName
+    
+    Dim ws As Worksheet
+    Dim wb As Workbook
+    
+    Set wb = ActiveWorkbook
+    
+    ' Handle ThisWorkbook special case
+    If displayName = "ThisWorkbook" Then
+        GetWorksheetInternalName = "ThisWorkbook"
+        Exit Function
+    End If
+    
+    ' Find the worksheet by display name
+    For Each ws In wb.Worksheets
+        If ws.Name = displayName Then
+            GetWorksheetInternalName = ws.CodeName
+            Exit Function
+        End If
+    Next ws
+    
+UseDisplayName:
+    ' Fallback to display name if internal name cannot be found
+    GetWorksheetInternalName = displayName
 End Function

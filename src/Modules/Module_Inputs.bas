@@ -1,8 +1,10 @@
+Attribute VB_Name = "Module_Inputs"
 Option Explicit
 
 ' ========= INPUTS SHEET EVENT HANDLER MODULE =========
 ' This module handles worksheet events specific to the Inputs sheet
 ' Manages automatic parameter highlighting when Case Type changes
+
 
 ' ========= CONFIGURATION CONSTANTS =========
 Private Const SHEET_INPUTS As String = "Inputs"
