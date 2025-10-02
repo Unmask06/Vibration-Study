@@ -163,6 +163,7 @@ End Function
 Public Sub ExportAll()
     ' Exports all VBA components from the active workbook to the src/ directory
     ' Components are organized by type: Modules/, Classes/, Forms/
+    ' Worksheet-specific modules are exported as Module_<WorksheetName>.bas files
     
     On Error GoTo ErrorHandler
     
@@ -189,13 +190,20 @@ Public Sub ExportAll()
     Call MkDirIfMissing(SrcPath("Classes"))
     Call MkDirIfMissing(SrcPath("Forms"))
     
-    ' Export all non-document components
+    ' Export all components including document modules with code
     For Each vbComp In wb.VBProject.VBComponents
         
-        ' Skip document modules (ThisWorkbook, Sheets)
-        If vbComp.Type <> vbext_ct_Document Then
-            
-            ' Determine file extension and subfolder based on component type
+        ' Handle document modules (worksheets and ThisWorkbook) with code
+        If vbComp.Type = vbext_ct_Document Then
+            If HasCode(vbComp) Then
+                ' Use dedicated function to export worksheet code
+                If ExportWorksheetCode(vbComp) Then
+                    exportCount = exportCount + 1
+                    Debug.Print "Exported worksheet code: Module_" & vbComp.Name & ".bas"
+                End If
+            End If
+        Else
+            ' Handle non-document components
             Select Case vbComp.Type
                 Case vbext_ct_StdModule
                     fileExt = ".bas"
@@ -240,6 +248,7 @@ End Sub
 Public Sub ImportAll()
     ' Imports all VBA components from the src/ directory into the active workbook
     ' Removes existing non-document components before importing
+    ' Handles worksheet-specific modules by importing into worksheet code modules
     
     On Error GoTo ErrorHandler
     
@@ -267,6 +276,10 @@ Public Sub ImportAll()
     Debug.Print "=== Starting RemoveAllCode ==="
     Call RemoveAllCode(wb)
     Debug.Print "=== RemoveAllCode Complete ==="
+    
+    ' Clear existing worksheet code
+    Debug.Print "=== Clearing Worksheet Code ==="
+    Call ClearWorksheetCode(wb)
     
     ' Import all components from src subdirectories
     Debug.Print "=== Starting Imports ==="
@@ -392,12 +405,14 @@ End Function
 Private Function ImportFromFolder(ByVal folderPath As String, ByVal filePattern As String) As Long
     ' Imports all files matching the pattern from the specified folder
     ' Returns the count of successfully imported files
+    ' Handles worksheet-specific modules (Module_<WorksheetName>.bas)
     
     Dim fileName As String
     Dim filePath As String
     Dim componentName As String
     Dim importCount As Long
     Dim fileCount As Long
+    Dim worksheetName As String
     
     importCount = 0
     fileCount = 0
@@ -441,9 +456,20 @@ Private Function ImportFromFolder(ByVal folderPath As String, ByVal filePattern 
             Debug.Print "  Component name: " & componentName
             Debug.Print "  Full path: " & filePath
             
-            ' Skip importing DevTools to avoid duplicates
-            If componentName <> "DevTools" Then
-                ' Check if component already exists
+            ' Check if this is a worksheet-specific module
+            If Left(componentName, 7) = "Module_" Then
+                worksheetName = Mid(componentName, 8) ' Remove "Module_" prefix
+                Debug.Print "  Detected worksheet module for: " & worksheetName
+                
+                ' Import code into worksheet module
+                If ImportWorksheetCode(filePath, worksheetName) Then
+                    importCount = importCount + 1
+                    Debug.Print "  SUCCESS - Imported worksheet code for: " & worksheetName
+                Else
+                    Debug.Print "  FAILED - Could not import worksheet code for: " & worksheetName
+                End If
+            ElseIf componentName <> "DevTools" Then
+                ' Handle regular modules
                 If ComponentExists(componentName, ActiveWorkbook) Then
                     Debug.Print "  SKIPPED - Component already exists: " & componentName
                 Else
@@ -680,6 +706,169 @@ NextPath:
     Debug.Print "=== End Folder Access Test ==="
 End Sub
 
+Private Function HasCode(ByVal vbComp As VBIDE.VBComponent) As Boolean
+    ' Checks if a VBA component has any code (non-empty code module)
+    
+    On Error GoTo NoCode
+    
+    HasCode = False
+    
+    ' Check if the component has a code module and if it contains code
+    If vbComp.CodeModule.CountOfLines > 0 Then
+        ' Check if there's actual code (not just empty lines)
+        Dim i As Long
+        For i = 1 To vbComp.CodeModule.CountOfLines
+            If Trim(vbComp.CodeModule.Lines(i, 1)) <> "" Then
+                HasCode = True
+                Exit Function
+            End If
+        Next i
+    End If
+    
+    Exit Function
+    
+NoCode:
+    HasCode = False
+End Function
 
+Private Sub ClearWorksheetCode(ByVal targetWB As Workbook)
+    ' Clears all code from worksheet and ThisWorkbook modules
+    
+    Dim vbComp As VBIDE.VBComponent
+    Dim lineCount As Long
+    
+    For Each vbComp In targetWB.VBProject.VBComponents
+        If vbComp.Type = vbext_ct_Document Then
+            lineCount = vbComp.CodeModule.CountOfLines
+            If lineCount > 0 Then
+                vbComp.CodeModule.DeleteLines 1, lineCount
+                Debug.Print "Cleared code from: " & vbComp.Name
+            End If
+        End If
+    Next vbComp
+End Sub
 
+Private Function ImportWorksheetCode(ByVal filePath As String, ByVal worksheetName As String) As Boolean
+    ' Imports code from a file into a worksheet's code module
+    
+    On Error GoTo ImportError
+    
+    Dim vbComp As VBIDE.VBComponent
+    Dim tempComp As VBIDE.VBComponent
+    Dim lineCount As Long
+    Dim codeText As String
+    
+    ImportWorksheetCode = False
+    
+    ' Find the worksheet component
+    Set vbComp = Nothing
+    Dim comp As VBIDE.VBComponent
+    For Each comp In ActiveWorkbook.VBProject.VBComponents
+        If comp.Type = vbext_ct_Document And comp.Name = worksheetName Then
+            Set vbComp = comp
+            Exit For
+        End If
+    Next comp
+    
+    If vbComp Is Nothing Then
+        Debug.Print "  ERROR: Worksheet not found: " & worksheetName
+        Exit Function
+    End If
+    
+    ' Import the file as a temporary module to read its code
+    Set tempComp = ActiveWorkbook.VBProject.VBComponents.Import(filePath)
+    
+    ' Get the code from the temporary module
+    lineCount = tempComp.CodeModule.CountOfLines
+    If lineCount > 0 Then
+        codeText = tempComp.CodeModule.Lines(1, lineCount)
+        
+        ' Clear existing code in worksheet and add new code
+        If vbComp.CodeModule.CountOfLines > 0 Then
+            vbComp.CodeModule.DeleteLines 1, vbComp.CodeModule.CountOfLines
+        End If
+        vbComp.CodeModule.AddFromString codeText
+        
+        ImportWorksheetCode = True
+    End If
+    
+    ' Remove the temporary module
+    ActiveWorkbook.VBProject.VBComponents.Remove tempComp
+    
+    Exit Function
+    
+ImportError:
+    Debug.Print "  ERROR importing worksheet code: " & Err.Number & " - " & Err.Description
+    
+    ' Clean up temporary module if it exists
+    On Error Resume Next
+    If Not tempComp Is Nothing Then
+        ActiveWorkbook.VBProject.VBComponents.Remove tempComp
+    End If
+    On Error GoTo 0
+    
+    ImportWorksheetCode = False
+End Function
 
+Private Function ExportWorksheetCode(ByVal vbComp As VBIDE.VBComponent) As Boolean
+    ' Exports code from a worksheet's code module to Module_<WorksheetName>.bas file
+    ' Returns True if export was successful, False otherwise
+    
+    On Error GoTo ExportError
+    
+    Dim exportPath As String
+    Dim fileName As String
+    Dim tempFilePath As String
+    Dim fileNum As Integer
+    Dim codeText As String
+    Dim lineCount As Long
+    
+    ExportWorksheetCode = False
+    
+    ' Validate input
+    If vbComp Is Nothing Then
+        Debug.Print "  ERROR: Invalid component reference"
+        Exit Function
+    End If
+    
+    If vbComp.Type <> vbext_ct_Document Then
+        Debug.Print "  ERROR: Component is not a document module: " & vbComp.Name
+        Exit Function
+    End If
+    
+    ' Build export file path
+    fileName = "Module_" & vbComp.Name & ".bas"
+    exportPath = SrcPath("Modules") & "\" & fileName
+    
+    ' Get the code from the worksheet module
+    lineCount = vbComp.CodeModule.CountOfLines
+    If lineCount = 0 Then
+        Debug.Print "  WARNING: No code found in " & vbComp.Name
+        Exit Function
+    End If
+    
+    ' Create a properly formatted .bas file content
+    ' VBA .bas files need specific header format
+    codeText = "Attribute VB_Name = """ & "Module_" & vbComp.Name & """" & vbCrLf
+    codeText = codeText & vbComp.CodeModule.Lines(1, lineCount)
+    
+    ' Write to file
+    fileNum = FreeFile
+    Open exportPath For Output As #fileNum
+    Print #fileNum, codeText
+    Close #fileNum
+    
+    ExportWorksheetCode = True
+    
+    Exit Function
+    
+ExportError:
+    Debug.Print "  ERROR exporting worksheet code for " & vbComp.Name & ": " & Err.Number & " - " & Err.Description
+    
+    ' Clean up file handle if needed
+    On Error Resume Next
+    Close #fileNum
+    On Error GoTo 0
+    
+    ExportWorksheetCode = False
+End Function

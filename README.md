@@ -153,7 +153,7 @@ Sub CalculateSingleValve()
     inputs.Dint_mm = 200#     ' Internal diameter
     inputs.Dext_mm = 250#     ' External diameter
     inputs.T_mm = 10#         ' Wall thickness
-    inputs.casetype = "liqclose"
+    inputs.casetype = "Valve Closure"
     
     ' Perform calculation
     result = CalculationEngine.CalculateByCase(inputs.casetype, inputs)
@@ -222,16 +222,16 @@ ValveListGenerator.bas ────┐
 
 ### Supported Case Types
 
-1. **Liquid Close** (`liqclose`)
+1. **Valve Closure** (`Valve Closure`)
    - Joukowsky pressure surge equation: ΔP = ρ × c × v
    - Force calculation: F = ΔP × Area
    - Load factor: LOF = F / Flim
 
-2. **Gas Open Rapid** (`gasopenrapid`)
+2. **Valve Opening (Dry Gas)** (`Valve Opening (Dry Gas)`)
    - Placeholder for EI gas opening calculations
    - Framework ready for implementation
 
-3. **Liquid Open** (`liqopen`)
+3. **Valve Opening (Liquid/Multiphase)** (`Valve Opening (Liquid/Multiphase)`)
    - Placeholder for EI liquid opening calculations
    - Framework ready for implementation
 

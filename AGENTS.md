@@ -1,3 +1,6 @@
+Clearly read Architecture.md file
+Dont create a module unless specified
+
 # Overview
 App is developed based on Energy Institute Guidelines
 T2.8 SURGE/MOMENTUM CHANGES DUE TO VALVE OPERATION
@@ -95,6 +98,28 @@ Pipe Support Type	–	–	1	1	1
 Main line Wall Thickness for SCH 40	–	mm	1	1	1
 Valve Type	–	–	1	0	0
 
+## lsCase
+Case
+Valve Closure
+Valve Opening (Liquid/Multiphase)
+Valve Opening (Dry Gas)
+
+## lsValveList
+Valve Type
+Ball-Full
+Ball-Reduced
+Butterfly
+Globe
+Gate
+
+## lsSupportType
+Support Type	Theta
+Stiff	4
+Medium Stiff	2
+Medium	1
+Flexible	0.2
+
+
 ## Units
 Follow the units specified in the tbRequiredInput[Units]
 
@@ -119,3 +144,9 @@ only Fmax formula is different for all the 3 cases
 **Purpose**: UI interactions and worksheet management
 4. DevTools.bas
 **Purpose**: Development tools and utilities for Import and Export to and from vcode env to excel
+### Worksheet Specific MOdules
+For event handling of specific worksheets the naming convection is "Module_<WorksheetName>.bas"
+1. Module_Inputs.bas
+2. Module_Ref.bas
+3. Module_Results.bas
+4. Module_ValveList.bas

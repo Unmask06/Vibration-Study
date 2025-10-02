@@ -58,11 +58,6 @@ Public Sub ErrorMsg(ByVal msg As String)
     Debug.Print BuildLogMessage("ERROR", msg)
 End Sub
 
-Public Sub Debug(ByVal msg As String)
-    ' Logs a debug message
-    Debug.Print BuildLogMessage("DEBUG", msg)
-End Sub
-
 ' ============================================================================
 ' PRIVATE METHODS
 ' ============================================================================

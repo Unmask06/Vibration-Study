@@ -1,9 +1,9 @@
-Attribute VB_Name = "ValveListGenerator"
+Attribute VB_Name = "UIManager"
 Option Explicit
 
-' ========= VALVE LIST GENERATOR MODULE =========
-' This module handles valve list generation and management
-' Consolidates functionality from T28_TableDriven and T28_UI_Calc modules
+' ========= UI MANAGER MODULE =========
+' This module handles UI interactions and worksheet management
+' Manages valve list generation, input highlighting, and user interface
 
 ' ========= CONFIGURATION CONSTANTS =========
 Private Const INPUTS_FIRST_COL As Long = 5   ' "E" — first valve column in Inputs
@@ -11,7 +11,12 @@ Private Const SHEET_VALVELIST As String = "ValveList"
 Private Const SHEET_INPUTS As String = "Inputs"
 Private Const SHEET_RESULTS As String = "Results"
 Private Const SHEET_DATA As String = "Data"
+Private Const SHEET_REF As String = "Ref"
 Private Const TABLE_VALVES As String = "tbValveList"
+
+' Colors for parameter highlighting
+Private Const COLOR_REQUIRED As Long = 65535      ' Light yellow (RGB(255, 255, 0))
+Private Const COLOR_NOT_REQUIRED As Long = 12632256 ' Light grey (RGB(192, 192, 192))
 
 ' Row labels in Inputs (must match the left-most "Parameter" text)
 Private Const ROW_PIPE_SUPPORT As String = "Pipe Support Type"
@@ -49,10 +54,11 @@ Public Sub Generate_Inputs_From_tbValveList()
     Dim lr As ListRow, c As Long: c = INPUTS_FIRST_COL
     Dim added As Long: added = 0
     For Each lr In lo.ListRows
-        Dim tag As String: tag = Trim$(NzS(lr.Range.Cells(1, 1).Value))  ' first column = Tag
+        Dim tag As String: tag = Trim$(NzS(lr.Range.Cells(1, 1).value))  ' first column = Tag
+        Dim caseType As String: caseType = Trim$(NzS(lr.Range.Cells(1, 2).value))  ' second column = CaseType
         If tag <> "" Then
             ' Add column header
-            wsIn.Cells(2, c).Value = tag
+            wsIn.Cells(2, c).value = tag
             With wsIn.Cells(2, c)
                 .Interior.Color = RGB(31, 78, 120)
                 .Font.Color = vbWhite
@@ -60,9 +66,15 @@ Public Sub Generate_Inputs_From_tbValveList()
                 .HorizontalAlignment = xlCenter
             End With
             
+            ' Set Case Type in the first row for this valve
+            Call SetParameterFromTable(wsIn, "Case Type", c, caseType)
+            
             ' Set Pipe Support Type and Valve Type from table
-            Call SetParameterFromTable(wsIn, ROW_PIPE_SUPPORT, c, NzS(lr.Range.Cells(1, 4).Value))  ' 4th column = SupportType
-            Call SetParameterFromTable(wsIn, ROW_VALVE_TYPE, c, NzS(lr.Range.Cells(1, 3).Value))    ' 3rd column = ValveType
+            Call SetParameterFromTable(wsIn, ROW_PIPE_SUPPORT, c, NzS(lr.Range.Cells(1, 4).value))  ' 4th column = SupportType
+            Call SetParameterFromTable(wsIn, ROW_VALVE_TYPE, c, NzS(lr.Range.Cells(1, 3).value))    ' 3rd column = ValveType
+            
+            ' Apply parameter highlighting based on case type
+            Call HighlightParametersByCase(wsIn, c, caseType)
             
             c = c + 1
             added = added + 1
@@ -74,56 +86,6 @@ Public Sub Generate_Inputs_From_tbValveList()
     Else
         MsgBox "No valid valve tags found in tbValveList.", vbExclamation
     End If
-End Sub
-
-' Alternative generation method from ValveList sheet (legacy support)
-Public Sub Generate_Inputs_From_ValveList()
-    Dim wsVL As Worksheet, wsIn As Worksheet
-    Set wsVL = Sheets(SHEET_VALVELIST)
-    Set wsIn = Sheets(SHEET_INPUTS)
-    
-    ' Read tags from worksheet
-    Dim lastRow As Long: lastRow = wsVL.Cells(wsVL.Rows.Count, "A").End(xlUp).Row
-    Dim tags As Collection: Set tags = New Collection
-    Dim ct As Collection: Set ct = New Collection
-    Dim vt As Collection: Set vt = New Collection
-    Dim st As Collection: Set st = New Collection
-    
-    Dim r As Long
-    For r = 3 To lastRow
-        If Trim$(wsVL.Cells(r, "A").Value) <> "" Then
-            tags.Add wsVL.Cells(r, "A").Value
-            ct.Add wsVL.Cells(r, "B").Value
-            vt.Add wsVL.Cells(r, "C").Value
-            st.Add wsVL.Cells(r, "D").Value
-        End If
-    Next r
-    
-    If tags.Count = 0 Then
-        MsgBox "No valve tags found.", vbExclamation
-        Exit Sub
-    End If
-    
-    ' Clear previous valve columns beyond D (first 4 columns are meta)
-    Dim lastCol As Long: lastCol = wsIn.Cells(2, wsIn.Columns.Count).End(xlToLeft).Column
-    If lastCol > 4 Then wsIn.Range(wsIn.Cells(2, 5), wsIn.Cells(wsIn.Rows.Count, lastCol)).Clear
-    
-    ' Write header columns for each tag
-    Dim i As Long, c As Long: c = 5  ' start column for first valve
-    For i = 1 To tags.Count
-        wsIn.Cells(2, c).Value = tags(i)
-        wsIn.Cells(2, c).Interior.Color = RGB(31, 78, 120)
-        wsIn.Cells(2, c).Font.Color = vbWhite
-        wsIn.Cells(2, c).Font.Bold = True
-        wsIn.Cells(2, c).HorizontalAlignment = xlCenter
-        
-        ' Setup dropdowns and default values
-        Call SetupValveColumnDropdowns(wsIn, c, vt(i), st(i))
-        
-        c = c + 1
-    Next i
-    
-    MsgBox "Generated " & tags.Count & " valve column(s) in Inputs sheet.", vbInformation
 End Sub
 
 ' Run calculations for all valve columns
@@ -147,7 +109,7 @@ Public Sub RunCalculations()
     ' Process each valve column
     Dim c As Long, resultCol As Long: resultCol = 2
     For c = INPUTS_FIRST_COL To lastCol
-        Dim tag As String: tag = Trim$(wsIn.Cells(2, c).Value)
+        Dim tag As String: tag = Trim$(wsIn.Cells(2, c).value)
         If tag <> "" Then
             ' Read inputs for this valve
             Dim inputs As ValveInputs
@@ -155,19 +117,97 @@ Public Sub RunCalculations()
             inputs.tag = tag
             
             ' Get case type from ValveList table
-            inputs.casetype = GetCaseTypeFromTable(tag)
+            inputs.caseType = GetCaseTypeFromTable(tag)
+            
+            ' Validate required inputs before calculation
+            Dim validationErrors As String
+            validationErrors = DataStructures.ValidateRequiredInputs(wsIn, inputs.caseType, c)
+            
+            If validationErrors <> "" Then
+                MsgBox "Validation errors for valve " & tag & ":" & vbCrLf & validationErrors, vbExclamation, "Input Validation Failed"
+                GoTo NextValve ' Skip this valve and continue with the next one
+            End If
             
             ' Perform calculation
             Dim result As CalculationResult
-            result = CalculationEngine.CalculateByCase(inputs.casetype, inputs)
+            result = CalculationEngine.CalculateByCase(inputs.caseType, inputs)
             
             ' Write results
             Call WriteCalculationResults(wsRes, resultCol, tag, result)
             resultCol = resultCol + 1
+            
+NextValve:
         End If
     Next c
     
     MsgBox "Calculations completed for " & (resultCol - 2) & " valve(s).", vbInformation
+End Sub
+
+' ========= PARAMETER HIGHLIGHTING FUNCTIONS =========
+
+' Highlight parameters based on case type requirements
+Public Sub HighlightParametersByCase(ws As Worksheet, columnIndex As Long, caseType As String)
+    ' Get all parameter names from the worksheet
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).row
+    
+    Dim r As Long
+    For r = 3 To lastRow ' Start from row 3 (assuming row 1 is header, row 2 is valve tags)
+        Dim paramName As String
+        paramName = Trim$(ws.Cells(r, 1).value)
+        
+        If paramName <> "" And paramName <> "Case Type" Then
+            Dim isRequired As Boolean
+            isRequired = DataStructures.IsParameterRequired(paramName, caseType)
+            
+            Dim targetCell As Range
+            Set targetCell = ws.Cells(r, columnIndex)
+            
+            If isRequired Then
+                ' Highlight required parameters with light yellow
+                targetCell.Interior.Color = COLOR_REQUIRED
+                targetCell.Locked = False
+                targetCell.Font.Color = vbBlack
+            Else
+                ' Grey out and lock non-required parameters
+                targetCell.Interior.Color = COLOR_NOT_REQUIRED
+                targetCell.Locked = True
+                targetCell.Font.Color = RGB(128, 128, 128)
+                targetCell.value = "" ' Clear any existing values for non-required parameters
+            End If
+        End If
+    Next r
+End Sub
+
+' Refresh highlighting for all valve columns when case types change
+Public Sub RefreshParameterHighlighting()
+    Call InitializeModules
+    
+    Dim wsIn As Worksheet
+    Set wsIn = Sheets(SHEET_INPUTS)
+    
+    ' Find valve columns (starting from column E)
+    Dim lastCol As Long: lastCol = wsIn.Cells(2, wsIn.Columns.Count).End(xlToLeft).Column
+    If lastCol < INPUTS_FIRST_COL Then
+        MsgBox "No valve columns found in Inputs sheet.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Process each valve column
+    Dim c As Long
+    For c = INPUTS_FIRST_COL To lastCol
+        Dim tag As String: tag = Trim$(wsIn.Cells(2, c).value)
+        If tag <> "" Then
+            ' Get case type for this valve
+            Dim caseType As String
+            caseType = GetCaseTypeFromTable(tag)
+            
+            ' Apply highlighting
+            Call HighlightParametersByCase(wsIn, c, caseType)
+        End If
+    Next c
+    
+    MsgBox "Parameter highlighting refreshed for all valve columns.", vbInformation
 End Sub
 
 ' ========= HELPER FUNCTIONS =========
@@ -178,36 +218,44 @@ Private Sub SetParameterFromTable(ws As Worksheet, parameterName As String, colu
     rowIndex = DataStructures.GetParameterRow(parameterName)
     
     If rowIndex > 0 Then
-        ws.Cells(rowIndex, columnIndex).Value = value
+        ws.Cells(rowIndex, columnIndex).value = value
     End If
 End Sub
 
-' Setup dropdowns for valve column
-Private Sub SetupValveColumnDropdowns(ws As Worksheet, columnIndex As Long, valveType As String, supportType As String)
+' Setup dropdowns for valve column with case type consideration
+Private Sub SetupValveColumnDropdowns(ws As Worksheet, columnIndex As Long, valveType As String, supportType As String, Optional caseType As String = "")
     ' Find parameter rows
     Dim lastParamRow As Long
-    lastParamRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    lastParamRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).row
     
-    Dim vtRow As Long, stRow As Long
+    Dim vtRow As Long, stRow As Long, ctRow As Long
     Dim r As Long
     For r = 3 To lastParamRow
-        Dim paramName As String: paramName = Trim$(ws.Cells(r, "A").Value)
+        Dim paramName As String: paramName = Trim$(ws.Cells(r, "A").value)
         If paramName = ROW_VALVE_TYPE Then vtRow = r
         If paramName = ROW_PIPE_SUPPORT Then stRow = r
+        If paramName = "Case Type" Then ctRow = r
     Next r
+    
+    ' Set case type if provided
+    If ctRow > 0 And caseType <> "" Then
+        ws.Cells(ctRow, columnIndex).value = caseType
+        ' Add validation using named range
+        Call DataStructures.ApplyValidationToRange(ws.Cells(ctRow, columnIndex), "CaseList", "", "Case Type", "Select case type")
+    End If
     
     ' Set valve type
     If vtRow > 0 Then
-        ws.Cells(vtRow, columnIndex).Value = valveType
-        ' Add validation from Data sheet
-        Call DataStructures.ApplyValidationToRange(ws.Cells(vtRow, columnIndex), "D3:D10", SHEET_DATA, "Valve Type", "Select valve type")
+        ws.Cells(vtRow, columnIndex).value = valveType
+        ' Add validation using named range
+        Call DataStructures.ApplyValidationToRange(ws.Cells(vtRow, columnIndex), "ValveList", "", "Valve Type", "Select valve type")
     End If
     
     ' Set support type
     If stRow > 0 Then
-        ws.Cells(stRow, columnIndex).Value = supportType
-        ' Add validation from Data sheet
-        Call DataStructures.ApplyValidationToRange(ws.Cells(stRow, columnIndex), "E3:E6", SHEET_DATA, "Support Type", "Select support type")
+        ws.Cells(stRow, columnIndex).value = supportType
+        ' Add validation using named range
+        Call DataStructures.ApplyValidationToRange(ws.Cells(stRow, columnIndex), "SupportList", "", "Support Type", "Select support type")
     End If
 End Sub
 
@@ -217,7 +265,7 @@ Private Function ReadValveInputsFromColumn(ws As Worksheet, columnIndex As Long)
     
     ' Read all parameters using DataStructures module
     inputs.rho = DataStructures.GetParameterDouble(ws, "Fluid density", columnIndex)
-    inputs.gamma = DataStructures.GetParameterDouble(ws, "Ratio of Specific Heat Capacities", columnIndex)
+    inputs.gamma = DataStructures.GetParameterDouble(ws, "Ratio of Specific Heat Capacities (Cp/Cv)", columnIndex)
     inputs.c0 = DataStructures.GetParameterDouble(ws, "Speed of sound", columnIndex)
     inputs.Mw = DataStructures.GetParameterDouble(ws, "Molecular Weight", columnIndex)
     inputs.r = DataStructures.GetParameterDouble(ws, "Universal Gas Constant", columnIndex)
@@ -228,8 +276,8 @@ Private Function ReadValveInputsFromColumn(ws As Worksheet, columnIndex As Long)
     inputs.Dext_mm = DataStructures.GetParameterDouble(ws, "External Main Line Diameter", columnIndex)
     inputs.Dint_mm = DataStructures.GetParameterDouble(ws, "Internal Main Line Diameter", columnIndex)
     inputs.T_mm = DataStructures.GetParameterDouble(ws, "Main line Wall Thickness", columnIndex)
-    inputs.Tsch40 = DataStructures.GetParameterDouble(ws, "Main line Wall Thickness for Schedule 40 Piping", columnIndex)
-    inputs.Em = DataStructures.GetParameterDouble(ws, "Young's Modulus of the main line material", columnIndex)
+    inputs.Tsch40 = DataStructures.GetParameterDouble(ws, "Main line Wall Thickness for SCH 40", columnIndex)
+    inputs.Em = DataStructures.GetParameterDouble(ws, "Young's Modulus of main line material", columnIndex)
     inputs.Lup = DataStructures.GetParameterDouble(ws, "Upstream Pipe Length", columnIndex)
     
     inputs.P1 = DataStructures.GetParameterDouble(ws, "Upstream Static Pressure", columnIndex)
@@ -239,8 +287,8 @@ Private Function ReadValveInputsFromColumn(ws As Worksheet, columnIndex As Long)
     inputs.Pshut = DataStructures.GetParameterDouble(ws, "Pump head at zero flow", columnIndex)
     
     inputs.Tclose = DataStructures.GetParameterDouble(ws, "Valve Closing Time", columnIndex)
-    inputs.valvetype = DataStructures.GetParameterString(ws, ROW_VALVE_TYPE, columnIndex)
-    inputs.supporttype = DataStructures.GetParameterString(ws, ROW_PIPE_SUPPORT, columnIndex)
+    inputs.valveType = DataStructures.GetParameterString(ws, ROW_VALVE_TYPE, columnIndex)
+    inputs.supportType = DataStructures.GetParameterString(ws, ROW_PIPE_SUPPORT, columnIndex)
     
     ReadValveInputsFromColumn = inputs
 End Function
@@ -256,42 +304,42 @@ Private Function GetCaseTypeFromTable(tag As String) As String
     On Error GoTo 0
     
     If lo Is Nothing Then
-        GetCaseTypeFromTable = "liqclose"  ' default
+        GetCaseTypeFromTable = "Valve Closure"  ' default
         Exit Function
     End If
     
     ' Search for the tag in the table
     Dim lr As ListRow
     For Each lr In lo.ListRows
-        If Trim$(NzS(lr.Range.Cells(1, 1).Value)) = tag Then
-            GetCaseTypeFromTable = Trim$(NzS(lr.Range.Cells(1, 2).Value))  ' 2nd column = CaseType
+        If Trim$(NzS(lr.Range.Cells(1, 1).value)) = tag Then
+            GetCaseTypeFromTable = Trim$(NzS(lr.Range.Cells(1, 2).value))  ' 2nd column = CaseType
             Exit Function
         End If
     Next lr
     
-    GetCaseTypeFromTable = "liqclose"  ' default if not found
+    GetCaseTypeFromTable = "Valve Closure"  ' default if not found
 End Function
 
 ' Write calculation results to the Results sheet
 Private Sub WriteCalculationResults(ws As Worksheet, columnIndex As Long, tag As String, result As CalculationResult)
     ' Write header
-    ws.Cells(1, columnIndex).Value = tag
+    ws.Cells(1, columnIndex).value = tag
     ws.Cells(1, columnIndex).Font.Bold = True
     
     ' Write results
-    ws.Cells(2, columnIndex).Value = result.Ppeak
-    ws.Cells(3, columnIndex).Value = result.Fmax
-    ws.Cells(4, columnIndex).Value = result.Flim
-    ws.Cells(5, columnIndex).Value = result.LOF
-    ws.Cells(6, columnIndex).Value = result.FlagText
+    ws.Cells(2, columnIndex).value = result.Ppeak
+    ws.Cells(3, columnIndex).value = result.Fmax
+    ws.Cells(4, columnIndex).value = result.Flim
+    ws.Cells(5, columnIndex).value = result.LOF
+    ws.Cells(6, columnIndex).value = result.FlagText
     
     ' Add labels if this is the first column
     If columnIndex = 2 Then
-        ws.Cells(2, 1).Value = "Ppeak (Pa)"
-        ws.Cells(3, 1).Value = "Fmax (kN)"
-        ws.Cells(4, 1).Value = "Flim (kN)"
-        ws.Cells(5, 1).Value = "LOF"
-        ws.Cells(6, 1).Value = "Flag"
+        ws.Cells(2, 1).value = "Ppeak (Pa)"
+        ws.Cells(3, 1).value = "Fmax (kN)"
+        ws.Cells(4, 1).value = "Flim (kN)"
+        ws.Cells(5, 1).value = "LOF"
+        ws.Cells(6, 1).value = "Flag"
     End If
 End Sub
 
@@ -310,10 +358,11 @@ Public Sub ClearValveData()
     End If
 End Sub
 
-' Refresh table validations
+' Refresh table validations and parameter highlighting
 Public Sub RefreshValidations()
     Call DataStructures.RefreshAllTableValidations
-    MsgBox "Table validations refreshed.", vbInformation
+    Call RefreshParameterHighlighting
+    MsgBox "Table validations and parameter highlighting refreshed.", vbInformation
 End Sub
 
 ' Null protection for String values

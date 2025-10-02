@@ -4,31 +4,22 @@ Option Explicit
 ' ========= CALCULATION ENGINE MODULE =========
 ' This module contains all calculation methods organized by case type
 
-' Calculation result structure
-Public Type CalculationResult
-    Ppeak As Double
-    Fmax As Double
-    Flim As Double
-    LOF As Double
-    FlagText As String
-End Type
-
 ' Main calculation dispatcher based on case type
-Public Function CalculateByCase(casetype As String, inputs As ValveInputs) As CalculationResult
+Public Function CalculateByCase(caseType As String, inputs As ValveInputs) As CalculationResult
     Dim result As CalculationResult
     
     ' Calculate common values first
     result.Flim = CalculateFlim(inputs)
     
-    Select Case LCase$(Trim$(casetype))
-        Case "liqclose"
+    Select Case LCase$(Trim$(caseType))
+        Case "valve closure"
             result = CalculateLiquidClose(inputs, result.Flim)
-        Case "gasopenrapid"
+        Case "valve opening (dry gas)"
             result = CalculateGasOpenRapid(inputs, result.Flim)
-        Case "liqopen"
+        Case "valve opening (liquid/multiphase)"
             result = CalculateLiquidOpen(inputs, result.Flim)
         Case Else
-            result.FlagText = "Unknown CaseType: " & casetype
+            result.FlagText = "Unknown CaseType: " & caseType
     End Select
     
     CalculateByCase = result
@@ -83,7 +74,7 @@ Private Function CalculateFlim(inputs As ValveInputs) As Double
     If inputs.Tsch40 > 0 Then Psi = inputs.T_mm / inputs.Tsch40
     
     Dim theta As Double
-    theta = ThetaFromSupport(inputs.supporttype)
+    theta = ThetaFromSupport(inputs.supportType)
     
     CalculateFlim = Flim_kN_EI(Psi, inputs.Dext_mm / 1000#, theta, inputs.Dint_mm / 1000#)
 End Function
